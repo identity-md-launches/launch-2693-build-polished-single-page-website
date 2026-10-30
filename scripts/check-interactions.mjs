@@ -1,11 +1,13 @@
 // Interaction checks against the built export, served at a /preview/ subpath by this script.
-// Usage: node scripts/check-interactions.mjs [distDir] [shotsDir]
+// Usage: node scripts/check-interactions.mjs [distDir] [shotsDir] [--url=https://squeekdashboard.online/] [--browser=chromium|webkit]
 // Playwright is not a project dependency; point PLAYWRIGHT_MODULE at its index.mjs if it is installed elsewhere.
 const { chromium, webkit } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const selectedBrowser = process.argv.find((arg) => arg.startsWith('--browser='))?.slice('--browser='.length);
+if (selectedBrowser && !['chromium', 'webkit'].includes(selectedBrowser)) throw new Error('Choose chromium or webkit.');
 const dist = path.resolve(process.argv[2] ?? 'dist');
 const shots = process.argv[3] ?? 'test/scratch/shots';
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
@@ -19,7 +21,12 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const base = `http://127.0.0.1:${server.address().port}/preview/`;
+const publicURL = process.argv.find((arg) => arg.startsWith('--url='))?.slice('--url='.length);
+if (publicURL && (new URL(publicURL).protocol !== 'https:' || !publicURL.endsWith('/'))) {
+  server.close();
+  throw new Error('Use an HTTPS base URL ending with /.');
+}
+const base = publicURL ?? `http://127.0.0.1:${server.address().port}/preview/`;
 
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`); };
@@ -30,6 +37,7 @@ async function run(engine, label) {
   try { browser = await engine.launch(); } catch (e) { check(`${label}: launch`, false, String(e).split('\n')[0]); return; }
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
+  try {
   const errors = [], failed = [], rpcCalls = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -45,7 +53,12 @@ async function run(engine, label) {
   check(`${label}: live data renders`, /^\d{1,3}(,\d{3})*$/.test(height), `height ${height}, progress ${pct}%, stats ${JSON.stringify(stats)}`);
   check(`${label}: status reads live`, (await page.textContent('.status')).includes('Live on Sepolia') || (await page.textContent('.status')).includes('Settlement paused'), await page.textContent('.status'));
   const local = await page.$$eval('link[rel=icon], script[src], link[rel=stylesheet]', (els) => els.map((e) => e.getAttribute('src') ?? e.getAttribute('href')));
-  check(`${label}: asset URLs are relative`, local.every((u) => u.startsWith('./')), local.join(' '));
+  // The public host injects its own Cloudflare beacon; it is absent from the committed export.
+  // Report that exact provider separately; no other external runtime asset is exempted.
+  const hostingScripts = publicURL ? local.filter((u) => /^https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js(?:\/|$)/.test(u)) : [];
+  if (hostingScripts.length) console.log(`INFO ${label}: hosting-injected script: ${hostingScripts.join(' ')}`);
+  const exportedAssets = local.filter((u) => !hostingScripts.includes(u));
+  check(`${label}: asset URLs are relative`, exportedAssets.every((u) => u.startsWith('./')), exportedAssets.join(' '));
 
   // 2. First screen at 390: wheel, block height, progress bar and Refresh button in the first 844px.
   const boxes = await page.evaluate(() => ['.wheel', '[role=progressbar]', '.btn--primary'].map((s) => document.querySelector(s).getBoundingClientRect().bottom));
@@ -133,13 +146,18 @@ async function run(engine, label) {
   check(`${label}: no console errors outside the forced RPC failure`, unexpected.length === 0, unexpected.slice(0, 3).join(' | '));
   const failedLocal = failed.filter((u) => u.startsWith(base));
   check(`${label}: no failed local resources`, failedLocal.length === 0, failedLocal.join(' '));
-  await browser.close();
+  } finally {
+    await browser.close();
+  }
 }
 
 fs.mkdirSync(shots, { recursive: true });
-await run(chromium, 'chromium');
-await run(webkit, 'webkit');
-server.close();
+try {
+  if (!selectedBrowser || selectedBrowser === 'chromium') await run(chromium, 'chromium');
+  if (!selectedBrowser || selectedBrowser === 'webkit') await run(webkit, 'webkit');
+} finally {
+  server.close();
+}
 const failedCount = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failedCount}/${results.length} passed`);
 process.exit(failedCount ? 1 : 0);

@@ -16,6 +16,12 @@ live section.
 All tokens and styles are in `src/styles.css`; components are in `src/App.tsx` and
 `src/components/`.
 
+The naming follow-up retains this visual system and all dashboard interactions. `index.html`
+declares `https://squeekdashboard.online/` as the canonical URL and `og:url`; favicon, social image,
+scripts, styles and fonts retain relative asset URLs. The design was rechecked against the pinned
+Better Interface guide across accessibility, layout, writing, typography, colors and UI; evidence
+and limitations are recorded in [VALIDATION.md](./VALIDATION.md).
+
 ## Colors
 
 Notation is `oklch()`. Primitives (hue-named) are declared first in `:root` and used only by the
@@ -36,11 +42,13 @@ semantic tokens below; components reference semantic tokens only. All values are
 | `--color-status-live` | `oklch(0.8 0.15 150)` (`--green-400`) | Live dot, "Running" |
 | `--color-status-alert` | `oklch(0.74 0.155 25)` (`--red-400`) | Paused and error dot, "Paused", error notice edge |
 
-Contrast ratios computed from these token values (WCAG formula, oklch converted to sRGB): text on bg
-17.7, text on surface 16.4, secondary on bg 9.8, secondary on surface 9.0, accent on bg 11.4,
-on-accent on accent 10.1, on-accent on accent-deep 6.2, live on surface 10.3, alert on surface 7.4.
-The taste probe reported all measured text passing 4.5:1 but did not measure boxes it classed as
-over gradients; see `artifacts/validation.md`.
+The follow-up measured computed foreground/background pairs with Chromium canvas conversion to
+sRGB and the WCAG luminance formula: body text on page 17.68:1, wheel height on surface 16.34:1,
+secondary labels on surface 9.04:1, primary button text on accent 10.08:1, progress percentage on
+page 11.35:1 and Running on surface 10.20:1. Token-pair checks gave primary hover 6.17:1, focus on
+page 11.35:1 and alert on surface 7.30:1. The taste probe passed measured text but skipped 83 boxes
+it classified as being over media or gradients. These additional measurements cover representative
+solid-background pairs, not every possible composited state; see [VALIDATION.md](./VALIDATION.md).
 
 Status colour is always paired with text ("Live on Sepolia", "Settlement paused", "Running",
 "Paused", "Contract is not paused").
@@ -149,3 +157,7 @@ only block height and pause changes.
 Recipe for another page or panel: start inside `main` (max width and gutter come with it), title the
 section with an `h2` at `--fs-stat`, put figures in a `dl.stats` of `.stat` cards, use
 `--color-text-secondary` for explanations, and if it has one main action, give it `.btn--primary`.
+
+Review guidance: Better Interface by Jakub Krehel (MIT). Documentation method informed by
+[Impeccable by Paul Bakaus](https://github.com/pbakaus/impeccable/blob/9d715cc4f5564a990ca8345abfdd5df6dc9b41c8/skill/reference/document.md)
+(Apache-2.0), as provided in the pinned reference.
